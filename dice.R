@@ -1,7 +1,8 @@
 rm(list =ls())
+library(tidyverse)
 library(rvest)
 
-dice <- function(type, amount, detail = F){
+dice <- function(type, amount = 1){
   
   aux <- switch(type, 
                 Red		= matrix(c(c(1,0,0),c(2,0,0),c(2,0,0),c(2,1,0),c(3,0,0),c(3,0,0)), byrow = T, ncol = 3),
@@ -12,32 +13,28 @@ dice <- function(type, amount, detail = F){
   
   aux2 <- sample.int(n = nrow(aux), size = amount, replace = T)
   
-  if(detail){
-    results <- data.frame(aux[aux2, ])
-    names(results) <- c("dmg", "bolt", "dist")
-    summary <- colMeans(results)
-    output <- list(results = results, summary = summary)
-  } else {    
-    summary <- data.frame(colMeans(aux[aux2, ]))
-    names(summary) <- c("dmg", "bolt", "dist")
-    output <- list(summary = summary)
-  }
-  
+  output <- data.frame(aux[aux2, ])
+  names(output) <- c("dmg", "bolt", "dist")
   
   return(output)
   
 }
-pair_of_dices <- function(dice1, dice2, amount_of_pairs){
-  
-  aux1 <- dice(dice1, amount_of_pairs, detail = T)
-  aux2 <- dice(dice2, amount_of_pairs, detail = T)
-  
-  results <- aux1$results + aux2$results
-  summary <- colMeans(results)
-  
-  output <- list(results = results, summary = summary)
+summarise_dice_results <- function(matrix_of_dice_data){
+  if(nrow(matrix_of_dice_data)>1){
+    output <- colMeans(matrix_of_dice_data)
+  } else {
+    output <- matrix_of_dice_data
+  }
   return(output)
+}
+throw <- function(vector_of_dices, throw_amount){
   
+  vector_of_dices <- vector_of_dices[!is.na(vector_of_dices)]
+  
+  d <- lapply(vector_of_dices, dice, amount = throw_amount)
+    output <-  Reduce("+", d)
+  
+  return(output)
 }
 basic_weapon_information <- function(item){
   
@@ -86,15 +83,24 @@ retrieve_list_of_weapons <- function(type){
   
 }
 
-out <- pair_of_dices("Red", "Red", 10000)
 weapon_types <- c("Ranged", "Melee")
-
 list_of_weapons <- sapply(weapon_types,retrieve_list_of_weapons)
 list_of_weapons_data <- lapply(list_of_weapons, 
                                function(x) apply(x, 1, basic_weapon_information))
 
 basic_info_all_weapons <- bind_rows(lapply(list_of_weapons_data, function(x) bind_rows(x)),.id = "type")
 
+item <- basic_info_all_weapons[2,]
+
+itemdices <- c(item$dice1, item$dice2, item$dice3)
 
 
+dice_combinations <- basic_info_all_weapons %>% 
+  distinct(dice1,dice2,dice3) %>%
+  filter(!is.na(dice1))
+
+ups <- apply(dice_combinations, 1, throw, throw_amount = 10000)
+
+output <- dice_combinations %>% cbind(t(sapply(ups, summarise_dice_results)))
+output %>% arrange(dmg)
 
