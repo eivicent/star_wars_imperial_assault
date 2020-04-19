@@ -36,7 +36,9 @@ throw <- function(vector_of_dices, throw_amount){
   
   return(output)
 }
-basic_weapon_information <- function(item){
+
+item <- list_of_weapons$Melee[4,]
+weapon_basic_information <- function(item){
   
   href <- item["href"]
   title <- item["title"]
@@ -65,6 +67,39 @@ basic_weapon_information <- function(item){
   
   return(output)
 }
+weapon_effect_information <- function(item){
+    
+  href <- item["href"]
+  title <- item["title"]
+  
+  items_web <- read_html(paste0("https://imperial-assault.fandom.com",href))
+  
+  
+  item_effects <- items_web %>% 
+    html_nodes(xpath = "//*[contains(@data-source, 'effect')]") %>% html_children
+  
+  effect <- item_effects %>% html_text
+  
+  type <- item_effects %>% html_nodes(css = "a") %>%  html_attr("title")
+  
+  
+  which(!(type %in% "Surge")) - which(type %in% "Surge")[1:length(which(!(type %in% "Surge")))]
+  
+  amount_type <- effect %>% str_extract("^(.+?)") %>% str_replace(":","1") %>% as.integer
+  
+  effect <- item_effects %>% html_text
+  effect_type <- effect %>% str_extract("([a-zA-Z]+)")
+  effect_amount <- effect %>% str_extract("(\\d)") %>% as.integer
+  
+  extra_effects <- data.frame(type = type, 
+                              type_amount = amount_type , 
+                              effect = effect_type, 
+                              effect_amount = effect_amount)
+
+return(extra_effects)
+
+}
+
 retrieve_list_of_weapons <- function(type){
   
   if(type %in% c("Ranged", "Melee")){
@@ -86,21 +121,39 @@ retrieve_list_of_weapons <- function(type){
 weapon_types <- c("Ranged", "Melee")
 list_of_weapons <- sapply(weapon_types,retrieve_list_of_weapons)
 list_of_weapons_data <- lapply(list_of_weapons, 
-                               function(x) apply(x, 1, basic_weapon_information))
+                               function(x) apply(x, 1, weapon_basic_information))
+
+list_of_weapons_effects <- lapply(list_of_weapons, 
+                               function(x) apply(x, 1, weapon_effect_information))
 
 basic_info_all_weapons <- bind_rows(lapply(list_of_weapons_data, function(x) bind_rows(x)),.id = "type")
 
-item <- basic_info_all_weapons[2,]
+item <- list_of_weapons[[1]][2,]
+
+
+
 
 itemdices <- c(item$dice1, item$dice2, item$dice3)
 
 
 dice_combinations <- basic_info_all_weapons %>% 
   distinct(dice1,dice2,dice3) %>%
-  filter(!is.na(dice1))
+  filter(!is.na(dice1)) 
 
-ups <- apply(dice_combinations, 1, throw, throw_amount = 10000)
+dices_key <- unite(dice_combinations, key, dice1:dice3, na.rm=T, remove = F)
 
-output <- dice_combinations %>% cbind(t(sapply(ups, summarise_dice_results)))
+test <- apply(dice_combinations, 1, throw, throw_amount = 10000)
+names(test) <- dices_key$key
+
+output <- dices_key %>% cbind(t(sapply(test, summarise_dice_results)))
 output %>% arrange(dmg)
+
+
+# test.plot <- bind_rows(test, .id = "key") %>% gather(metric, value, -key)
+# ggplot(test.plot, aes(colour = metric, x =value)) +
+  # geom_density() +
+  # facet_wrap(.~key)
+
+
+
 
