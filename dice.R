@@ -33,7 +33,6 @@ throw <- function(vector_of_dices, throw_amount){
   
   d <- lapply(vector_of_dices, dice, amount = throw_amount)
     output <-  Reduce("+", d)
-  
   return(output)
 }
 weapon_basic_information <- function(item){
@@ -119,14 +118,14 @@ free_extra_stats <- function(unitary_throw, free_dmg, free_ac){
   return(unitary_throw)
 }
 extra_dmg <- function(effect_list_weapon){
-  aux <- effect_list_weapon %>% filter(active_type == "Accuracy" |
-                                         (is.na(active_type) & effect == "Accuracy"))
+  aux <- effect_list_weapon %>% filter(active_type == "Damage" |
+                                         (is.na(active_type) & effect == "Damage"))
   output <- ifelse(nrow(aux) > 0,sum(aux$effect_amount),0)
   return(output)
 }
 extra_accuracy <- function(effect_list_weapon){
-  aux <- effect_list_weapon %>% filter(active_type == "Damage" |
-                                         (is.na(active_type) & effect == "Damage"))
+  aux <- effect_list_weapon %>% filter(active_type == "Accuracy" |
+                                         (is.na(active_type) & effect == "Accuracy"))
   output <- ifelse(nrow(aux) > 0,sum(aux$effect_amount),0)
   return(output)
 }
@@ -134,10 +133,14 @@ surge_to_dmg <- function(unitary_throw, effect_list_weapon){
   
   aux <- effect_list_weapon %>% filter(active_type == "Surge" &
                                          is.na(effect))
-  surge_enough <- ifelse(unitary_throw$bolt >= aux$active_amount,T,F)
-  
-  unitary_throw[surge_enough, "bolt"] <- unitary_throw[surge_enough, "bolt"] - aux$active_amount
-  unitary_throw[surge_enough,"dmg"] <- unitary_throw[surge_enough, "dmg"] + aux$effect_amount
+  if(nrow(aux) > 0){
+    for(jj in 1:nrow(aux)){
+      surge_enough <- ifelse(unitary_throw$bolt >= aux$active_amount,T,F)
+    
+      unitary_throw[surge_enough, "bolt"] <- unitary_throw[surge_enough, "bolt"] - aux$active_amount[jj]
+      unitary_throw[surge_enough,"dmg"] <- unitary_throw[surge_enough, "dmg"] + aux$effect_amount[jj]
+    }
+  }
   return(unitary_throw)
 }
 
@@ -154,7 +157,11 @@ list_of_weapons_effects <- lapply(list_of_weapons,
 
 basic_info_all_weapons <- bind_rows(lapply(list_of_weapons_data, function(x) bind_rows(x)),.id = "type")
 effect_info_all_weapons <- bind_rows(lapply(list_of_weapons_effects, function(x) bind_rows(x)),.id = "type") %>%
-  mutate(active_amount = ifelse(active_type =="Surge" & is.na(active_amount),2, active_amount))
+  mutate(active_amount = ifelse(active_type =="Surge" & 
+                                  is.na(active_amount) & is.na(effect),1, 
+                                ifelse(active_type == "Surge" & is.na(active_amount),
+                                       2,
+                                       active_amount)))
 
 effect_info_all_weapons_summary <- effect_info_all_weapons %>% 
   # Filtering extra dmg or accuracy that adds to dices
@@ -178,14 +185,42 @@ for(ii in 1:nrow(basic_info_all_weapons)){
   
   dices <- basic_info_all_weapons[ii,] %>% select(dice1:dice3)
   if(sum(is.na(dices))<3){
-    aux <- throw(dices, 10000)
+    aux <- throw(dices, 100000)
     attack_simulation[[ii]] <- aux %>%
-    free_extra_stats(extra_dmg(effect), extra_accuracy(effect)) %>%
+    free_extra_stats(free_dmg = extra_dmg(effect), free_ac = extra_accuracy(effect)) %>%
     surge_to_dmg(effect)
+  } else {
+    attack_simulation[[ii]] <- matrix(c(0,0,0), nrow=1,
+                                      dimnames = list(c(""),c("dmg", "bolt", "dist")))
   }
   
   cat(ii, "/",nrow(basic_info_all_weapons),"\n")
 }
+names(attack_simulation) <- basic_info_all_weapons$name
+
+
+attack_tables <- lapply(attack_simulation, ftable)
+attack_summary <- lapply(attack_simulation, summarise_dice_results)
+
+ups <- bind_rows(attack_summary, .id = "name")
+
+
+aux <- list()
+for(ii in 1:length(attack_simulation)){
+ aux[[ii]] <- summarise_dice_results(attack_simulation[[ii]])
+}
+
+
+attack_simulation[[29]]
+
+
+
+
+
+
+
+
+
 
 
 
