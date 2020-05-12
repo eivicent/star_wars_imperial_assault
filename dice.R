@@ -13,7 +13,7 @@ dice <- function(type, amount = 1){
   
   aux2 <- sample.int(n = nrow(aux), size = amount, replace = T)
   
-  output <- data.frame(aux[aux2, ])
+  output <- aux[aux2, ] %>% matrix(nrow = amount) %>% data.frame
   names(output) <- c("dmg", "bolt", "dist")
   
   return(output)
@@ -33,10 +33,9 @@ throw <- function(vector_of_dices, throw_amount){
   
   d <- lapply(vector_of_dices, dice, amount = throw_amount)
     output <-  Reduce("+", d)
-  
   return(output)
 }
-basic_weapon_information <- function(item){
+weapon_basic_information <- function(item){
   
   href <- item["href"]
   title <- item["title"]
@@ -65,6 +64,37 @@ basic_weapon_information <- function(item){
   
   return(output)
 }
+weapon_effect_information <- function(item){
+    
+  href <- item["href"]
+  title <- item["title"]
+  
+  items_web <- read_html(paste0("https://imperial-assault.fandom.com",href))
+  
+  
+  item_effects <- items_web %>% 
+    html_nodes(xpath = "//*[contains(@data-source, 'effect')]") %>% html_children
+  
+  effect <- item_effects %>% html_text
+  
+  type <- item_effects %>% html_node(css = "a") %>%  html_attr("title")
+  # type_aux <- item_effects %>% html_nodes(css = "a") %>%  html_attr("title")
+  
+  amount_type <- effect %>% str_extract("^(.+?)") %>% str_replace(":","1") %>% as.integer
+  
+  effect <- item_effects %>% html_text
+  effect_type <- effect %>% str_extract("([a-zA-Z]+)")
+  effect_amount <- effect %>% str_extract("(\\d)") %>% as.integer
+  
+  extra_effects <- data.frame(name = title,
+                              active_type = type, 
+                              active_amount = amount_type , 
+                              effect = effect_type, 
+                              effect_amount = effect_amount)
+
+return(extra_effects)
+
+}
 retrieve_list_of_weapons <- function(type){
   
   if(type %in% c("Ranged", "Melee")){
@@ -82,25 +112,115 @@ retrieve_list_of_weapons <- function(type){
   }
   
 }
+free_extra_stats <- function(unitary_throw, free_dmg, free_ac){
+    unitary_throw["dmg"] <- unitary_throw["dmg"] + free_dmg
+    unitary_throw["dist"] <- unitary_throw["dist"] + free_ac
+  return(unitary_throw)
+}
+extra_dmg <- function(effect_list_weapon){
+  aux <- effect_list_weapon %>% filter(active_type == "Damage" |
+                                         (is.na(active_type) & effect == "Damage"))
+  output <- ifelse(nrow(aux) > 0,sum(aux$effect_amount),0)
+  return(output)
+}
+extra_accuracy <- function(effect_list_weapon){
+  aux <- effect_list_weapon %>% filter(active_type == "Accuracy" |
+                                         (is.na(active_type) & effect == "Accuracy"))
+  output <- ifelse(nrow(aux) > 0,sum(aux$effect_amount),0)
+  return(output)
+}
+surge_to_dmg <- function(unitary_throw, effect_list_weapon){
+  
+  aux <- effect_list_weapon %>% filter(active_type == "Surge" &
+                                         is.na(effect))
+  if(nrow(aux) > 0){
+    for(jj in 1:nrow(aux)){
+      surge_enough <- ifelse(unitary_throw$bolt >= aux$active_amount,T,F)
+    
+      unitary_throw[surge_enough, "bolt"] <- unitary_throw[surge_enough, "bolt"] - aux$active_amount[jj]
+      unitary_throw[surge_enough,"dmg"] <- unitary_throw[surge_enough, "dmg"] + aux$effect_amount[jj]
+    }
+  }
+  return(unitary_throw)
+}
+
+##################### RETRIEVING WEAPON INFORMATION ###################
 
 weapon_types <- c("Ranged", "Melee")
 list_of_weapons <- sapply(weapon_types,retrieve_list_of_weapons)
 list_of_weapons_data <- lapply(list_of_weapons, 
-                               function(x) apply(x, 1, basic_weapon_information))
+                               function(x) apply(x, 1, weapon_basic_information))
+
+list_of_weapons_effects <- lapply(list_of_weapons, 
+                               function(x) apply(x, 1, weapon_effect_information))
 
 basic_info_all_weapons <- bind_rows(lapply(list_of_weapons_data, function(x) bind_rows(x)),.id = "type")
+effect_info_all_weapons <- bind_rows(lapply(list_of_weapons_effects, function(x) bind_rows(x)),.id = "type") %>%
+  mutate(active_amount = ifelse(active_type =="Surge" & 
+                                  is.na(active_amount) & is.na(effect),1, 
+                                ifelse(active_type == "Surge" & is.na(active_amount),
+                                       2,
+                                       active_amount)))
 
-item <- basic_info_all_weapons[2,]
+effect_info_all_weapons_summary <- effect_info_all_weapons %>% 
+  # Filtering extra dmg or accuracy that adds to dices
+  filter(!is.na(active_type) & !(active_type %in% c("Damage", "Accuracy"))) %>%
+  mutate(active_type = ifelse(active_type == "Surge", 
+                              ifelse(is.na(effect), "surge_dmg", 
+                                     "surge_extra"), "others")) %>%
+  count(name, active_type) %>%
+  spread(active_type, n)
 
-itemdices <- c(item$dice1, item$dice2, item$dice3)
+##################### ANALYZING WEAPONS ###################
 
+attack_simulation <- list()
+for(ii in 1:nrow(basic_info_all_weapons)){
+  
+  basic_info_all_weapons[ii,]
+  
+  effect_list_weapon <- effect <- effect_info_all_weapons %>% filter(name == basic_info_all_weapons$name[ii])
+
+  dices <- basic_info_all_weapons[ii,] %>% select(dice1:dice3)
+  if(sum(is.na(dices))<3){
+    aux <- throw(dices, 100000)
+    attack_simulation[[ii]] <- aux %>%
+    free_extra_stats(free_dmg = extra_dmg(effect), free_ac = extra_accuracy(effect)) %>%
+    surge_to_dmg(effect)
+  } else {
+    attack_simulation[[ii]] <- matrix(c(0,0,0), nrow=1,
+                                      dimnames = list(c(""),c("dmg", "bolt", "dist")))
+  }
+  
+  cat(ii, "/",nrow(basic_info_all_weapons),"\n")
+}
+names(attack_simulation) <- basic_info_all_weapons$name
+
+attack_tables <- lapply(attack_simulation, ftable)
+attack_summary <- t(sapply(attack_simulation, summarise_dice_results))
+attack_summary <- data.frame(name = rownames(attack_summary), attack_summary, row.names = NULL, stringsAsFactors = F)
+
+##################### FINAL OUTPUT ###################
+
+total_info_weapons <- basic_info_all_weapons %>%
+  cbind(attack_summary)
+
+##################### DICES ALONE ###################
 
 dice_combinations <- basic_info_all_weapons %>% 
   distinct(dice1,dice2,dice3) %>%
-  filter(!is.na(dice1))
+  filter(!is.na(dice1)) 
 
-ups <- apply(dice_combinations, 1, throw, throw_amount = 10000)
+dices_key <- unite(dice_combinations, key, dice1:dice3, na.rm=T, remove = F)
 
-output <- dice_combinations %>% cbind(t(sapply(ups, summarise_dice_results)))
+test <- apply(dice_combinations, 1, throw, throw_amount = 10000)
+names(test) <- dices_key$key
+
+test$Blue_Green %>% ftable(col.vars = "dmg", row.vars = c("bolt","dist"))
+
+output <- dices_key %>% cbind(t(sapply(test, summarise_dice_results)))
 output %>% arrange(dmg)
 
+# test.plot <- bind_rows(test, .id = "key") %>% gather(metric, value, -key)
+# ggplot(test.plot, aes(colour = metric, x =value)) +
+  # geom_density() +
+  # facet_wrap(.~key)
