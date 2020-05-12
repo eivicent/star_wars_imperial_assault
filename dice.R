@@ -144,8 +144,7 @@ surge_to_dmg <- function(unitary_throw, effect_list_weapon){
   return(unitary_throw)
 }
 
-
-############## RETRIEVING WEAPON INFORMATION ##############
+##################### RETRIEVING WEAPON INFORMATION ###################
 
 weapon_types <- c("Ranged", "Melee")
 list_of_weapons <- sapply(weapon_types,retrieve_list_of_weapons)
@@ -172,8 +171,7 @@ effect_info_all_weapons_summary <- effect_info_all_weapons %>%
   count(name, active_type) %>%
   spread(active_type, n)
 
-
-############# ANALYZING WEAPONS #############
+##################### ANALYZING WEAPONS ###################
 
 attack_simulation <- list()
 for(ii in 1:nrow(basic_info_all_weapons)){
@@ -182,7 +180,6 @@ for(ii in 1:nrow(basic_info_all_weapons)){
   
   effect_list_weapon <- effect <- effect_info_all_weapons %>% filter(name == basic_info_all_weapons$name[ii])
 
-  
   dices <- basic_info_all_weapons[ii,] %>% select(dice1:dice3)
   if(sum(is.na(dices))<3){
     aux <- throw(dices, 100000)
@@ -198,31 +195,14 @@ for(ii in 1:nrow(basic_info_all_weapons)){
 }
 names(attack_simulation) <- basic_info_all_weapons$name
 
-
 attack_tables <- lapply(attack_simulation, ftable)
-attack_summary <- lapply(attack_simulation, summarise_dice_results)
+attack_summary <- t(sapply(attack_simulation, summarise_dice_results))
+attack_summary <- data.frame(name = rownames(attack_summary), attack_summary, row.names = NULL, stringsAsFactors = F)
 
-ups <- bind_rows(attack_summary, .id = "name")
+##################### FINAL OUTPUT ###################
 
-
-aux <- list()
-for(ii in 1:length(attack_simulation)){
- aux[[ii]] <- summarise_dice_results(attack_simulation[[ii]])
-}
-
-
-attack_simulation[[29]]
-
-
-
-
-
-
-
-
-
-
-
+total_info_weapons <- basic_info_all_weapons %>%
+  cbind(attack_summary)
 
 ##################### DICES ALONE ###################
 
@@ -240,12 +220,7 @@ test$Blue_Green %>% ftable(col.vars = "dmg", row.vars = c("bolt","dist"))
 output <- dices_key %>% cbind(t(sapply(test, summarise_dice_results)))
 output %>% arrange(dmg)
 
-
 # test.plot <- bind_rows(test, .id = "key") %>% gather(metric, value, -key)
 # ggplot(test.plot, aes(colour = metric, x =value)) +
   # geom_density() +
   # facet_wrap(.~key)
-
-
-
-
