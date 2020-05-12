@@ -196,13 +196,25 @@ for(ii in 1:nrow(basic_info_all_weapons)){
 names(attack_simulation) <- basic_info_all_weapons$name
 
 attack_tables <- lapply(attack_simulation, ftable)
+
 attack_summary <- t(sapply(attack_simulation, summarise_dice_results))
-attack_summary <- data.frame(name = rownames(attack_summary), attack_summary, row.names = NULL, stringsAsFactors = F)
+# attack_summary <- data.frame(name = rownames(attack_summary), attack_summary, row.names = NULL, stringsAsFactors = F)
 
 ##################### FINAL OUTPUT ###################
 
 total_info_weapons <- basic_info_all_weapons %>%
   cbind(attack_summary)
+
+auxiii<-attack_simulation[[1]] %>%
+  ftable() %>%
+  prop.table() 
+
+upsi <- attack_simulation[[1]] %>% 
+  ftable(row.vars = c("dmg", "bolt", "dist"))  %>%
+  prop.table() %>%
+  as.data.frame()
+
+
 
 ##################### DICES ALONE ###################
 
